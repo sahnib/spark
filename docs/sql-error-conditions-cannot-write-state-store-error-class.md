@@ -34,4 +34,8 @@ This error class has the following derived error classes:
 
 Cannot perform commit during state checkpoint.
 
+## NULL_VALUE
+
+Cannot write null values to State Store for StateName `<stateName>`.
+
 

@@ -68,6 +68,16 @@ trait ReadStateStore {
     colFamilyName: String = StateStore.DEFAULT_COL_FAMILY_NAME): UnsafeRow
 
   /**
+   * Provides an iterator containing all values for a particular key. The values are merged
+   * together and stored as a byte Array in the underlying state store. This operation relies
+   * on state store encoder to be able to split the single array into multiple values.
+   *
+   * Also see [[MultiValuedStateEncoder]] which supports encoding/decoding multiple values per key.
+   */
+  def valuesIterator(key: UnsafeRow,
+      colFamilyName: String = StateStore.DEFAULT_COL_FAMILY_NAME): Iterator[UnsafeRow]
+
+  /**
    * Return an iterator containing all the key-value pairs which are matched with
    * the given prefix key.
    *
@@ -127,6 +137,9 @@ trait StateStore extends ReadStateStore {
   def remove(key: UnsafeRow,
     colFamilyName: String = StateStore.DEFAULT_COL_FAMILY_NAME): Unit
 
+  def merge(key: UnsafeRow, value: UnsafeRow,
+      colFamilyName: String = StateStore.DEFAULT_COL_FAMILY_NAME): Unit
+
   /**
    * Commit all the updates that have been made to the store, and return the new version.
    * Implementations should ensure that no more updates (puts, removes) can be after a commit in
@@ -178,6 +191,10 @@ class WrappedReadStateStore(store: StateStore) extends ReadStateStore {
   override def prefixScan(prefixKey: UnsafeRow,
     colFamilyName: String = StateStore.DEFAULT_COL_FAMILY_NAME): Iterator[UnsafeRowPair] =
     store.prefixScan(prefixKey, colFamilyName)
+
+  override def valuesIterator(key: UnsafeRow, colFamilyName: String): Iterator[UnsafeRow] = {
+    store.valuesIterator(key, colFamilyName)
+  }
 }
 
 /**
@@ -287,6 +304,8 @@ trait StateStoreProvider {
    *                          families
    * @param storeConfs Configurations used by the StateStores
    * @param hadoopConf Hadoop configuration that could be used by StateStore to save state data
+   * @param useMultipleValuesPerKey Whether the underlying state store needs to support multiple
+   *                                values for a single key.
    */
   def init(
       stateStoreId: StateStoreId,
@@ -295,7 +314,8 @@ trait StateStoreProvider {
       numColsPrefixKey: Int,
       useColumnFamilies: Boolean,
       storeConfs: StateStoreConf,
-      hadoopConf: Configuration): Unit
+      hadoopConf: Configuration,
+      useMultipleValuesPerKey: Boolean = false): Unit
 
   /**
    * Return the id of the StateStores this provider will generate.
@@ -349,10 +369,11 @@ object StateStoreProvider {
       numColsPrefixKey: Int,
       useColumnFamilies: Boolean,
       storeConf: StateStoreConf,
-      hadoopConf: Configuration): StateStoreProvider = {
+      hadoopConf: Configuration,
+      useMultipleValuesPerKey: Boolean): StateStoreProvider = {
     val provider = create(storeConf.providerClass)
     provider.init(providerId.storeId, keySchema, valueSchema, numColsPrefixKey,
-      useColumnFamilies, storeConf, hadoopConf)
+      useColumnFamilies, storeConf, hadoopConf, useMultipleValuesPerKey)
     provider
   }
 
@@ -545,12 +566,13 @@ object StateStore extends Logging {
       version: Long,
       useColumnFamilies: Boolean,
       storeConf: StateStoreConf,
-      hadoopConf: Configuration): ReadStateStore = {
+      hadoopConf: Configuration,
+      useMultipleValuesPerKey: Boolean = false): ReadStateStore = {
     if (version < 0) {
       throw QueryExecutionErrors.unexpectedStateStoreVersion(version)
     }
     val storeProvider = getStateStoreProvider(storeProviderId, keySchema, valueSchema,
-      numColsPrefixKey, useColumnFamilies, storeConf, hadoopConf)
+      numColsPrefixKey, useColumnFamilies, storeConf, hadoopConf, useMultipleValuesPerKey)
     storeProvider.getReadStore(version)
   }
 
@@ -563,12 +585,13 @@ object StateStore extends Logging {
       version: Long,
       useColumnFamilies: Boolean,
       storeConf: StateStoreConf,
-      hadoopConf: Configuration): StateStore = {
+      hadoopConf: Configuration,
+      useMultipleValuesPerKey: Boolean = false): StateStore = {
     if (version < 0) {
       throw QueryExecutionErrors.unexpectedStateStoreVersion(version)
     }
     val storeProvider = getStateStoreProvider(storeProviderId, keySchema, valueSchema,
-      numColsPrefixKey, useColumnFamilies, storeConf, hadoopConf)
+      numColsPrefixKey, useColumnFamilies, storeConf, hadoopConf, useMultipleValuesPerKey)
     storeProvider.getStore(version)
   }
 
@@ -579,7 +602,8 @@ object StateStore extends Logging {
       numColsPrefixKey: Int,
       useColumnFamilies: Boolean,
       storeConf: StateStoreConf,
-      hadoopConf: Configuration): StateStoreProvider = {
+      hadoopConf: Configuration,
+      useMultipleValuesPerKey: Boolean): StateStoreProvider = {
     loadedProviders.synchronized {
       startMaintenanceIfNeeded(storeConf)
 
@@ -613,7 +637,7 @@ object StateStore extends Logging {
           storeProviderId,
           StateStoreProvider.createAndInit(
             storeProviderId, keySchema, valueSchema, numColsPrefixKey,
-            useColumnFamilies, storeConf, hadoopConf)
+            useColumnFamilies, storeConf, hadoopConf, useMultipleValuesPerKey)
         )
       }
 

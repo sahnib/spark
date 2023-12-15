@@ -16,15 +16,11 @@
  */
 package org.apache.spark.sql.execution.streaming
 
-import org.apache.commons.lang3.SerializationUtils
-
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
-import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.execution.streaming.state.{StateStore, StateStoreErrors}
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow
+import org.apache.spark.sql.execution.streaming.state.StateStore
 import org.apache.spark.sql.streaming.ValueState
-import org.apache.spark.sql.types._
 
 /**
  * Class that provides a concrete implementation for a single value state associated with state
@@ -40,32 +36,6 @@ class ValueStateImpl[S](
     stateName: String,
     keyExprEnc: ExpressionEncoder[Any]) extends ValueState[S] with Logging {
 
-  // TODO: validate places that are trying to encode the key and check if we can eliminate/
-  // add caching for some of these calls.
-  private def encodeKey(): UnsafeRow = {
-    val keyOption = ImplicitGroupingKeyTracker.getImplicitKeyOption
-    if (!keyOption.isDefined) {
-      throw StateStoreErrors.implicitKeyNotFound(stateName)
-    }
-
-    val toRow = keyExprEnc.createSerializer()
-    val keyByteArr = toRow
-      .apply(keyOption.get).asInstanceOf[UnsafeRow].getBytes()
-
-    val schemaForKeyRow: StructType = new StructType().add("key", BinaryType)
-    val keyEncoder = UnsafeProjection.create(schemaForKeyRow)
-    val keyRow = keyEncoder(InternalRow(keyByteArr))
-    keyRow
-  }
-
-  private def encodeValue(value: S): UnsafeRow = {
-    val schemaForValueRow: StructType = new StructType().add("value", BinaryType)
-    val valueByteArr = SerializationUtils.serialize(value.asInstanceOf[Serializable])
-    val valueEncoder = UnsafeProjection.create(schemaForValueRow)
-    val valueRow = valueEncoder(InternalRow(valueByteArr))
-    valueRow
-  }
-
   /** Function to check if state exists. Returns true if present and false otherwise */
   override def exists(): Boolean = {
     getImpl() != null
@@ -75,9 +45,7 @@ class ValueStateImpl[S](
   override def getOption(): Option[S] = {
     val retRow = getImpl()
     if (retRow != null) {
-      val resState = SerializationUtils
-        .deserialize(retRow.getBinary(0))
-        .asInstanceOf[S]
+      val resState = StateTypesEncoderUtils.decodeValue[S](retRow)
       Some(resState)
     } else {
       None
@@ -88,26 +56,24 @@ class ValueStateImpl[S](
   override def get(): S = {
     val retRow = getImpl()
     if (retRow != null) {
-      val resState = SerializationUtils
-        .deserialize(retRow.getBinary(0))
-        .asInstanceOf[S]
-      resState
+      StateTypesEncoderUtils.decodeValue[S](retRow)
     } else {
       null.asInstanceOf[S]
     }
   }
 
   private def getImpl(): UnsafeRow = {
-    store.get(encodeKey(), stateName)
+    store.get(StateTypesEncoderUtils.encodeGroupingKey(stateName, keyExprEnc), stateName)
   }
 
   /** Function to update and overwrite state associated with given key */
   override def update(newState: S): Unit = {
-    store.put(encodeKey(), encodeValue(newState), stateName)
+    store.put(StateTypesEncoderUtils.encodeGroupingKey(stateName, keyExprEnc),
+      StateTypesEncoderUtils.encodeValue(newState), stateName)
   }
 
   /** Function to remove state for given key */
-  override def remove(): Unit = {
-    store.remove(encodeKey(), stateName)
+  override def clear(): Unit = {
+    store.remove(StateTypesEncoderUtils.encodeGroupingKey(stateName, keyExprEnc), stateName)
   }
 }

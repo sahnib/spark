@@ -51,6 +51,12 @@ object StateStoreErrors {
     StateStoreUnsupportedOperationException = {
       new StateStoreUnsupportedOperationException(operationName, entity)
     }
+
+  def requireNonNullStateValue(value: Any, stateName: String): Unit = {
+    SparkException.require(value != null,
+      errorClass = "CANNOT_WRITE_STATE_STORE.NULL_VALUE",
+      messageParameters = Map("stateName" -> stateName))
+  }
 }
 
 class StateStoreMultipleColumnFamiliesNotSupportedException(stateStoreProvider: String)

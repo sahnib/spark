@@ -94,6 +94,10 @@ private[sql] class HDFSBackedStateStoreProvider extends StateStoreProvider with 
       Iterator[UnsafeRowPair] = {
       map.prefixScan(prefixKey)
     }
+
+    override def valuesIterator(key: UnsafeRow, colFamilyName: String): Iterator[UnsafeRow] = {
+      throw new UnsupportedOperationException("store does not support multiple values per key")
+    }
   }
 
   /** Implementation of [[StateStore]] API which is backed by an HDFS-compatible file system */
@@ -204,7 +208,16 @@ private[sql] class HDFSBackedStateStoreProvider extends StateStoreProvider with 
     override def removeColFamilyIfExists(colFamilyName: String): Unit = {
       throw StateStoreErrors.removingColumnFamiliesNotSupported(
         "HDFSBackedStateStoreProvider")
+    }
 
+    override def valuesIterator(key: UnsafeRow, colFamilyName: String): Iterator[UnsafeRow] = {
+      throw StateStoreErrors.unsupportedOperationException("multipleValuesPerKey", "HDFSStateStore")
+    }
+
+    override def merge(key: UnsafeRow,
+        value: UnsafeRow,
+        colFamilyName: String): Unit = {
+      throw StateStoreErrors.unsupportedOperationException("merge", "HDFSStateStore")
     }
   }
 
@@ -251,7 +264,8 @@ private[sql] class HDFSBackedStateStoreProvider extends StateStoreProvider with 
       numColsPrefixKey: Int,
       useColumnFamilies: Boolean,
       storeConf: StateStoreConf,
-      hadoopConf: Configuration): Unit = {
+      hadoopConf: Configuration,
+      useMultipleValuesPerKey: Boolean = false): Unit = {
     this.stateStoreId_ = stateStoreId
     this.keySchema = keySchema
     this.valueSchema = valueSchema
@@ -262,6 +276,11 @@ private[sql] class HDFSBackedStateStoreProvider extends StateStoreProvider with 
     // TODO: add support for multiple col families with HDFSBackedStateStoreProvider
     if (useColumnFamilies) {
       throw StateStoreErrors.multipleColumnFamiliesNotSupported("HDFSStateStoreProvider")
+    }
+
+    if (useMultipleValuesPerKey) {
+      throw new UnsupportedOperationException("Multiple values per key are not supported with " +
+        "HDFSBackedStateStoreProvider")
     }
 
     require((keySchema.length == 0 && numColsPrefixKey == 0) ||

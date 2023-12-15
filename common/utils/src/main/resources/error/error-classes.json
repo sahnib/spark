@@ -397,6 +397,11 @@
         "message" : [
           "Cannot perform commit during state checkpoint."
         ]
+      },
+      "NULL_VALUE" : {
+        "message" : [
+          "Cannot write null values to State Store for StateName <stateName>."
+        ]
       }
     },
     "sqlState" : "58030"

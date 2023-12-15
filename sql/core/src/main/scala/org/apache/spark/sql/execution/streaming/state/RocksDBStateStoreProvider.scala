@@ -65,6 +65,43 @@ private[sql] class RocksDBStateStoreProvider
       value
     }
 
+    override def valuesIterator(key: UnsafeRow, colFamilyName: String): Iterator[UnsafeRow] = {
+      verify(key != null, "Key cannot be null")
+      verify(encoder.supportsMultipleValuesPerKey, "valuesIterator requires a encoder " +
+      "that supports multiple values for a single key.")
+      val valueIterator = encoder.decodeValues(rocksDB.get(encoder.encodeKey(key), colFamilyName))
+
+      if (!isValidated && valueIterator.nonEmpty) {
+        new Iterator[UnsafeRow] {
+          override def hasNext: Boolean = {
+            valueIterator.hasNext
+          }
+
+          override def next(): UnsafeRow = {
+            val value = valueIterator.next()
+            if (!isValidated && value != null) {
+              StateStoreProvider.validateStateRowFormat(
+                key, keySchema, value, valueSchema, storeConf)
+              isValidated = true
+            }
+            value
+          }
+        }
+      } else {
+        valueIterator
+      }
+    }
+
+    override def merge(key: UnsafeRow, value: UnsafeRow,
+        colFamilyName: String = StateStore.DEFAULT_COL_FAMILY_NAME): Unit = {
+      verify(state == UPDATING, "Cannot put after already committed or aborted")
+      verify(encoder.supportsMultipleValuesPerKey, "Merge operation requires a encoder" +
+        " which supports multiple values for a single key")
+      verify(key != null, "Key cannot be null")
+      require(value != null, "Cannot put a null value")
+      rocksDB.merge(encoder.encodeKey(key), encoder.encodeValue(value), colFamilyName)
+    }
+
     override def put(key: UnsafeRow, value: UnsafeRow, colFamilyName: String): Unit = {
       verify(state == UPDATING, "Cannot put after already committed or aborted")
       verify(key != null, "Key cannot be null")
@@ -203,7 +240,8 @@ private[sql] class RocksDBStateStoreProvider
       numColsPrefixKey: Int,
       useColumnFamilies: Boolean,
       storeConf: StateStoreConf,
-      hadoopConf: Configuration): Unit = {
+      hadoopConf: Configuration,
+      useMultipleValuesPerKey: Boolean = false): Unit = {
     this.stateStoreId_ = stateStoreId
     this.keySchema = keySchema
     this.valueSchema = valueSchema
@@ -215,7 +253,15 @@ private[sql] class RocksDBStateStoreProvider
       (keySchema.length > numColsPrefixKey), "The number of columns in the key must be " +
       "greater than the number of columns for prefix key!")
 
-    this.encoder = RocksDBStateEncoder.getEncoder(keySchema, valueSchema, numColsPrefixKey)
+    if (useMultipleValuesPerKey) {
+      require(numColsPrefixKey == 0, "Both multiple values per key, and prefix key are not " +
+        "supported simultaneously.")
+      require(useColumnFamilies, "Multiple values per key support requires column families to be" +
+        " enabled in RocksDBStateStore.")
+    }
+
+    this.encoder = RocksDBStateEncoder.getEncoder(keySchema, valueSchema,
+      numColsPrefixKey, useMultipleValuesPerKey)
 
     rocksDB // lazy initialization
   }
