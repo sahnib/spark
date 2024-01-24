@@ -3183,6 +3183,24 @@
     ],
     "sqlState" : "0A000"
   },
+  "STATE_STORE_MULTIPLE_COLUMN_FAMILIES" : {
+    "message" : [
+      "Creating multiple column families with <stateStoreProvider> is not supported"
+    ],
+    "sqlState" : "42802"
+  },
+  "STATE_STORE_MULTIPLE_VALUES_PER_KEY" : {
+    "message" : [
+      "Store does not support multiple values per key"
+    ],
+    "sqlState" : "42802"
+  },
+  "STATE_STORE_UNSUPPORTED_OPERATION" : {
+    "message" : [
+      "<operationType> operation not supported with <entity>"
+    ],
+    "sqlState" : "XXKST"
+  },
   "STATIC_PARTITION_COLUMN_IN_INSERT_COLUMN_LIST" : {
     "message" : [
       "Static partition column <staticName> is also specified in the column list."
@@ -3336,35 +3354,11 @@
     ],
     "sqlState" : "428EK"
   },
-  "TWS_ENCODER_UNSUPPORTED_PREFIX_KEY" : {
-    "message" : [
-      "Encoder doesn't support prefix key for state store provider: <stateStoreEncoder>. Please use another state store provider that supports prefix keys, or omit the prefix key."
-    ],
-    "sqlState" : "XXKST"
-  },
   "TWS_IMPLICIT_KEY_NOT_FOUND" : {
     "message" : [
       "Implicit key not found for operation on stateName=<stateName>"
     ],
     "sqlState" : "55019"
-  },
-  "TWS_STORE_MULTIPLE_COLUMN_FAMILIES" : {
-    "message" : [
-      "Creating multiple column families with <stateStoreProvider> is not supported"
-    ],
-    "sqlState" : "42802"
-  },
-  "TWS_STORE_MULTIPLE_VALUES_PER_KEY" : {
-    "message" : [
-      "Store does not support multiple values per key"
-    ],
-    "sqlState" : "42802"
-  },
-  "TWS_UNSUPPORTED_OPERATION" : {
-    "message" : [
-      "<operationType> operation not supported with <entity>"
-    ],
-    "sqlState" : "XXKST"
   },
   "TWS_VALUE_SHOULD_BE_NONNULL" : {
     "message" : [

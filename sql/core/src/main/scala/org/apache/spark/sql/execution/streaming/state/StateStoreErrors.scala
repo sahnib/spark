@@ -30,10 +30,6 @@ object StateStoreErrors {
     new TransformWithStateImplicitKeyNotFound(stateName)
   }
 
-  def encoderPrefixKey(stateStoreEncoder: String): TransformWithStateEncoderPrefixKey = {
-    new TransformWithStateEncoderPrefixKey(stateStoreEncoder)
-  }
-
   def multipleColumnFamilies(stateStoreProvider: String):
     TransformWithStateMultipleColumnFamilies = {
     new TransformWithStateMultipleColumnFamilies(stateStoreProvider)
@@ -57,29 +53,22 @@ class TransformWithStateImplicitKeyNotFound(stateName: String)
     messageParameters = Map("stateName" -> stateName)
   )
 
-// Used for ListState
-class TransformWithStateEncoderPrefixKey(stateStoreEncoder: String)
-  extends SparkRuntimeException(
-    errorClass = "TWS_ENCODER_UNSUPPORTED_PREFIX_KEY",
-    messageParameters = Map("stateStoreEncoder" -> stateStoreEncoder)
-  )
-
 class TransformWithStateMultipleColumnFamilies(stateStoreProvider: String)
   extends SparkUnsupportedOperationException(
-    errorClass = "TWS_STORE_MULTIPLE_COLUMN_FAMILIES",
+    errorClass = "STAT_STORE_MULTIPLE_COLUMN_FAMILIES",
     messageParameters = Map("stateStoreProvider" -> stateStoreProvider)
   )
 
 // Used for ListState
 class TransformWithStateMultipleValuesPerKey()
   extends SparkRuntimeException(
-    errorClass = "TWS_STORE_MULTIPLE_VALUES_PER_KEY",
+    errorClass = "STATE_STORE_STORE_MULTIPLE_VALUES_PER_KEY",
     messageParameters = Map.empty
   )
 
 class TransformWithStateUnsupportedOperation(operationType: String, entity: String)
   extends SparkUnsupportedOperationException(
-    errorClass = "TWS_STORE_UNSUPPORTED_OPERATION",
+    errorClass = "STATE_STORE_UNSUPPORTED_OPERATION",
     messageParameters = Map("operationType" -> operationType, "entity" -> entity)
   )
 
