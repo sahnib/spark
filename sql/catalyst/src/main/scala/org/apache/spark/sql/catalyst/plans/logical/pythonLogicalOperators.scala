@@ -158,6 +158,23 @@ case class FlatMapGroupsInPandasWithState(
     newChild: LogicalPlan): FlatMapGroupsInPandasWithState = copy(child = newChild)
 }
 
+object TransformWithStateInPandas {
+  def apply(functionExpr: Expression,
+      groupingAttributes: Seq[Attribute],
+      outputAttrs: Seq[Attribute],
+      outputMode: OutputMode,
+      child: LogicalPlan): TransformWithStateInPandas = {
+
+    new TransformWithStateInPandas(
+      functionExpr,
+      groupingAttributes,
+      outputAttrs,
+      outputMode,
+      child = child
+    )
+  }
+}
+
 case class TransformWithStateInPandas(
     functionExpr: Expression,
     groupingAttributes: Seq[Attribute],
