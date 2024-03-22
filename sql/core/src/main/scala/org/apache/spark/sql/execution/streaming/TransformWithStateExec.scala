@@ -17,12 +17,7 @@
 package org.apache.spark.sql.execution.streaming
 
 import java.util.UUID
-import java.util.concurrent.ForkJoinPool
 import java.util.concurrent.TimeUnit.NANOSECONDS
-
-import scala.util.control.NonFatal
-
-import org.apache.commons.lang3.SerializationUtils
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
@@ -45,7 +40,7 @@ import org.apache.spark.util.{CompletionIterator, SerializableConfiguration, Uti
  * @param groupingAttributes used to group the data
  * @param dataAttributes used to read the data
  * @param statefulProcessor processor methods called on underlying data
- * @param ttlMode defines the ttl Mode
+ * @param ttlMode defines the ttl Mode for user state
  * @param timeoutMode defines the timeout mode
  * @param outputMode defines the output mode for the statefulProcessor
  * @param keyEncoder expression encoder for the key type
@@ -101,52 +96,6 @@ case class TransformWithStateExec(
     StatefulOperatorPartitioning.getCompatibleDistribution(groupingAttributes,
       getStateInfo, conf) ::
       Nil
-  }
-
-  private def startTTLCleanupThread(store: StateStore): ForkJoinPool = {
-    // get state name from the statefulProcessor
-    val ttlColFamilies = store.listColumnFamilies().filter(_.startsWith("ttl_"))
-    val threadPool = new ForkJoinPool(ttlColFamilies.size)
-    @volatile var exception: Option[Throwable] = None
-    // start thread in fork join pool for each ttl column family
-    ttlColFamilies.foreach { ttlColFamily =>
-      threadPool.execute(() => {
-        try {
-          ttlFunc(store, ttlColFamily)
-        } catch {
-          case NonFatal(e) =>
-            exception = Some(e)
-            logError(s"Error in TTL thread for stateName=$ttlColFamily", e)
-        }
-      })
-    }
-    threadPool
-  }
-
-  def ttlFunc(store: StateStore, ttlColFamily: String): Unit = {
-    val expiredKeyStateNames =
-      store.iterator(ttlColFamily).flatMap { kv =>
-        val ttl = kv.key.getLong(0)
-        if (ttl <= System.currentTimeMillis()) {
-          Some(kv.key)
-        } else {
-          None
-        }
-      }
-    expiredKeyStateNames.foreach { keyStateName =>
-      store.remove(keyStateName, ttlColFamily)
-      val stateName = SerializationUtils.deserialize(
-        keyStateName.getBinary(1)).asInstanceOf[String]
-      val groupingKey = keyStateName.getBinary(2)
-      val keyRow = StateKeyValueRowSchema.encodeGroupingKeyBytes(groupingKey)
-      val row = store.get(keyRow, stateName)
-      if (row != null) {
-        val ttl = row.getLong(1)
-        if (ttl != -1 && ttl <= System.currentTimeMillis()) {
-          store.remove(keyRow, stateName)
-        }
-      }
-    }
   }
 
 
@@ -291,7 +240,7 @@ case class TransformWithStateExec(
       allUpdatesTimeMs += NANOSECONDS.toMillis(System.nanoTime - updatesStartTimeNs)
       commitTimeMs += timeTakenMs {
         if (isStreaming) {
-          // join ttlBackgroundThread forkjoinpool
+          // clean up any expired user state
           processorHandle.doTtlCleanup()
           store.commit()
         } else {
@@ -309,20 +258,8 @@ case class TransformWithStateExec(
   override protected def doExecute(): RDD[InternalRow] = {
     metrics // force lazy init at driver
 
-    // TODO(sahnib) add validation for ttlMode
-    timeoutMode match {
-      case ProcessingTime =>
-        if (batchTimestampMs.isEmpty) {
-          StateStoreErrors.missingTimeoutValues(timeoutMode.toString)
-        }
-
-      case EventTime =>
-        if (eventTimeWatermarkForEviction.isEmpty) {
-          StateStoreErrors.missingTimeoutValues(timeoutMode.toString)
-        }
-
-      case _ =>
-    }
+    validateTTLMode()
+    validateTimeoutMode()
 
     if (isStreaming) {
       child.execute().mapPartitionsWithStateStore[InternalRow](
@@ -394,6 +331,38 @@ case class TransformWithStateExec(
     statefulProcessor.init(outputMode, timeoutMode)
     processorHandle.setHandleState(StatefulProcessorHandleState.INITIALIZED)
     processDataWithPartition(singleIterator, store, processorHandle)
+  }
+
+  private def validateTimeoutMode(): Unit = {
+    timeoutMode match {
+      case ProcessingTime =>
+        if (batchTimestampMs.isEmpty) {
+          StateStoreErrors.missingTimeoutValues(timeoutMode.toString)
+        }
+
+      case EventTime =>
+        if (eventTimeWatermarkForEviction.isEmpty) {
+          StateStoreErrors.missingTimeoutValues(timeoutMode.toString)
+        }
+
+      case _ =>
+    }
+  }
+
+  private def validateTTLMode(): Unit = {
+    ttlMode match {
+      case ProcessingTimeTTL =>
+        if (batchTimestampMs.isEmpty) {
+          StateStoreErrors.missingTTLValues(timeoutMode.toString)
+        }
+
+      case EventTimeTTL =>
+        if (eventTimeWatermarkForEviction.isEmpty) {
+          StateStoreErrors.missingTTLValues(timeoutMode.toString)
+        }
+
+      case _ =>
+    }
   }
 }
 
