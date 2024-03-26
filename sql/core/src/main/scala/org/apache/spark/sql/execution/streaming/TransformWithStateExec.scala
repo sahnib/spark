@@ -469,6 +469,7 @@ case class TransformWithStateExec(
   }
 
   private def validateTTLMode(): Unit = {
+    logWarning(s"Validating ttl Mode - $ttlMode $eventTimeWatermarkForEviction")
     ttlMode match {
       case ProcessingTimeTTL =>
         if (batchTimestampMs.isEmpty) {
