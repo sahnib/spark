@@ -681,6 +681,7 @@ class TransformWithStateSuite extends StateStoreMetricsTest
       .groupByKey(x => x)
       .transformWithState(new RunningCountStatefulProcessor(),
         TimeoutMode.NoTimeouts(),
+        TTLMode.NoTTL(),
         OutputMode.Update())
   }
 
