@@ -21,7 +21,7 @@ import java.time.Duration
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.UnsafeProjection
 import org.apache.spark.sql.catalyst.plans.logical.{EventTimeTTL, NoTTL, ProcessingTimeTTL}
-import org.apache.spark.sql.execution.streaming.state.StateStore
+import org.apache.spark.sql.execution.streaming.state.{PrefixKeyScanStateEncoderSpec, StateStore}
 import org.apache.spark.sql.streaming.TTLMode
 import org.apache.spark.sql.types.{BinaryType, DataType, LongType, NullType, StructField, StructType}
 
@@ -50,8 +50,8 @@ class StatefulProcessorTTLState(
 
   validate()
   if (createColumnFamily) {
-    store.createColFamilyIfAbsent(ttlColumnFamilyName, schemaForKeyRow, 0,
-      schemaForValueRow, isInternal = true)
+    store.createColFamilyIfAbsent(ttlColumnFamilyName, schemaForKeyRow,
+      schemaForValueRow, PrefixKeyScanStateEncoderSpec(schemaForKeyRow, 1), isInternal = true)
   }
 
   private def validate(): Unit = {
