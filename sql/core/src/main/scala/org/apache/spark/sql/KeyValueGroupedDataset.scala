@@ -656,6 +656,7 @@ class KeyValueGroupedDataset[K, V] private[sql](
    * @param statefulProcessor Instance of statefulProcessor whose functions will be invoked by the
    *                          operator.
    * @param timeoutMode The timeout mode of the stateful processor.
+   * @param ttlMode The ttlMode to evict user state on ttl expiration
    * @param outputMode The output mode of the stateful processor. Defaults to APPEND mode.
    *
    */
