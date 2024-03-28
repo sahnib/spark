@@ -49,13 +49,20 @@ class ListStateImpl[S](
     with StateVariableWithTTLSupport {
 
   private val keySerializer = keyExprEnc.createSerializer()
-
   private val stateTypesEncoder = StateTypesEncoder(keySerializer, valEncoder, stateName)
   private[sql] var ttlState: Option[SingleKeyTTLState] = None
 
-  store.createColFamilyIfAbsent(stateName, KEY_ROW_SCHEMA, VALUE_ROW_SCHEMA,
-    NoPrefixKeyStateEncoderSpec(KEY_ROW_SCHEMA), useMultipleValuesPerKey = true)
+  initialize()
+  private def initialize(): Unit = {
+    store.createColFamilyIfAbsent(stateName, KEY_ROW_SCHEMA, VALUE_ROW_SCHEMA,
+      NoPrefixKeyStateEncoderSpec(KEY_ROW_SCHEMA), useMultipleValuesPerKey = true)
 
+    if (ttlMode != TTLMode.NoTTL()) {
+      val _ttlState = new SingleKeyTTLState(ttlMode, stateName, store,
+        batchTimestampMs, eventTimeWatermarkMs)
+      ttlState = Some(_ttlState)
+    }
+  }
   /** Whether state exists or not. */
    override def exists(): Boolean = {
      val encodedGroupingKey = stateTypesEncoder.encodeGroupingKey()
@@ -98,7 +105,6 @@ class ListStateImpl[S](
        // pointing to a non-expired row
        private def setNextValidRow(): Unit = {
          assert(shouldGetNextValidRow)
-         logError(s"### in setNextValidRow")
          shouldGetNextValidRow = false
          if (unsafeRowValuesIterator.hasNext) {
            currentRow = unsafeRowValuesIterator.next()
@@ -124,6 +130,7 @@ class ListStateImpl[S](
      validateNewState(newState)
 
      val encodedKey = stateTypesEncoder.encodeGroupingKey()
+     val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
      var isFirst = true
 
      var expirationMs: Long = -1
@@ -142,7 +149,7 @@ class ListStateImpl[S](
        }
      }
      ttlState.foreach(_.upsertTTLForStateKey(expirationMs,
-       stateTypesEncoder.serializeGroupingKey()))
+       serializedGroupingKey))
    }
 
    /** Append an entry to the list. */
@@ -207,23 +214,18 @@ class ListStateImpl[S](
    * @param groupingKey grouping key for which cleanup should be performed.
    */
   override def clearIfExpired(groupingKey: Array[Byte]): Unit = {
-    val encodedKey = stateTypesEncoder.encodeGroupingKey()
-    val unsafeRowValuesIterator = store.valuesIterator(encodedKey, stateName)
+    val encodedGroupingKey = stateTypesEncoder.encodeSerializedGroupingKey(groupingKey)
+    val unsafeRowValuesIterator = store.valuesIterator(encodedGroupingKey, stateName)
     // We clear the list, and use the iterator to put back all of the non-expired values
-    clear()
+    store.remove(encodedGroupingKey, stateName)
     var isFirst = true
     unsafeRowValuesIterator.foreach { encodedValue =>
-      val encodedGroupingKey = stateTypesEncoder.encodeSerializedGroupingKey(groupingKey)
-      if (encodedValue != null) {
-        if (isExpired(encodedValue)) {
-          store.remove(encodedGroupingKey, stateName)
+      if (!isExpired(encodedValue)) {
+        if (isFirst) {
+          store.put(encodedGroupingKey, encodedValue, stateName)
+          isFirst = false
         } else {
-          if (isFirst) {
-            store.put(encodedKey, encodedValue, stateName)
-            isFirst = false
-          } else {
-            store.merge(encodedKey, encodedValue, stateName)
-          }
+          store.merge(encodedGroupingKey, encodedValue, stateName)
         }
       }
     }
@@ -265,17 +267,17 @@ class ListStateImpl[S](
   /**
    * Read the ttl value associated with the grouping key.
    */
-  private[sql] def getTTLValues(): Iterator[Long] = {
+  private[sql] def getTTLValues(): Iterator[Option[Long]] = {
     val encodedKey = stateTypesEncoder.encodeGroupingKey()
     val unsafeRowValuesIterator = store.valuesIterator(encodedKey, stateName)
-    new Iterator[Long] {
+    new Iterator[Option[Long]] {
       override def hasNext: Boolean = {
         unsafeRowValuesIterator.hasNext
       }
 
-      override def next(): Long = {
+      override def next(): Option[Long] = {
         val valueUnsafeRow = unsafeRowValuesIterator.next()
-        stateTypesEncoder.decodeTtlExpirationMs(valueUnsafeRow).get
+        stateTypesEncoder.decodeTtlExpirationMs(valueUnsafeRow)
       }
     }
   }

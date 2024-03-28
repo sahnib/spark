@@ -133,6 +133,23 @@ class StatefulProcessorHandleImpl(
     resultState
   }
 
+  override def getListState[T](
+     stateName: String,
+     valEncoder: Encoder[T]): ListState[T] = {
+    verifyStateVarOperations("get_list_state")
+
+    val resultState = new ListStateImpl[T](store, stateName, keyEncoder, valEncoder,
+      ttlMode, batchTimestampMs, eventTimeWatermarkMs)
+    val ttlState = resultState.ttlState
+
+    ttlState.foreach { s =>
+      ttlStates.add(s)
+      s.setStateVariable(resultState)
+    }
+
+    resultState
+  }
+
   override def getQueryInfo(): QueryInfo = currQueryInfo
 
   private lazy val timerState = new TimerStateImpl(store, timeoutMode, keyEncoder)
@@ -213,13 +230,6 @@ class StatefulProcessorHandleImpl(
   override def deleteIfExists(stateName: String): Unit = {
     verifyStateVarOperations("delete_if_exists")
     store.removeColFamilyIfExists(stateName)
-  }
-
-  override def getListState[T](stateName: String, valEncoder: Encoder[T]): ListState[T] = {
-    verifyStateVarOperations("get_list_state")
-    val resultState = new ListStateImpl[T](store, stateName, keyEncoder, valEncoder,
-      ttlMode, batchTimestampMs, eventTimeWatermarkMs)
-    resultState
   }
 
   override def getMapState[K, V](

@@ -119,7 +119,6 @@ class SingleKeyTTLState(
       val expirationMs = kv.key.getLong(0)
       val isExpired = StateTTL.isExpired(ttlMode, expirationMs,
         batchTimestampMs, eventTimeWatermarkMs)
-
       if (isExpired) {
         val groupingKey = kv.key.getBinary(1)
         state.clearIfExpired(groupingKey)
