@@ -34,7 +34,10 @@ abstract class StatefulProcessorWithInitialStateTestClass[V]
   @transient var _listState: ListState[Double] = _
   @transient var _mapState: MapState[Double, Int] = _
 
-  override def init(outputMode: OutputMode, timeoutMode: TimeoutMode): Unit = {
+  override def init(
+      outputMode: OutputMode,
+      timeoutMode: TimeoutMode,
+      ttlMode: TTLMode): Unit = {
     _valState = getHandle.getValueState[Double]("testValueInit", Encoders.scalaDouble)
     _listState = getHandle.getListState[Double]("testListInit", Encoders.scalaDouble)
     _mapState = getHandle.getMapState[Double, Int](
@@ -154,7 +157,7 @@ class TransformWithStateInitialStateSuite extends StateStoreMetricsTest
           InputRowForInitialState("init_2", 100.0, List(100.0), Map(100.0 -> 1)))
           .toDS().groupByKey(x => x.key).mapValues(x => x)
       val query = kvDataSet.transformWithState(new InitialStateInMemoryTestClass(),
-            TimeoutMode.NoTimeouts(), OutputMode.Append(), initStateDf)
+        TTLMode.NoTTL(), TimeoutMode.NoTimeouts(), OutputMode.Append(), initStateDf)
 
       testStream(query, OutputMode.Update())(
         // non-exist key test
@@ -232,7 +235,7 @@ class TransformWithStateInitialStateSuite extends StateStoreMetricsTest
       val query = inputData.toDS()
         .groupByKey(x => x.key)
         .transformWithState(new AccumulateStatefulProcessorWithInitState(),
-          TimeoutMode.NoTimeouts(), OutputMode.Append(), initStateDf
+          TTLMode.NoTTL(), TimeoutMode.NoTimeouts(), OutputMode.Append(), initStateDf
         )
       testStream(query, OutputMode.Update())(
         AddData(inputData, InitInputRow("init_1", "add", 50.0)),
@@ -252,6 +255,7 @@ class TransformWithStateInitialStateSuite extends StateStoreMetricsTest
     val result = inputData.toDS()
       .groupByKey(x => x.key)
       .transformWithState(new AccumulateStatefulProcessorWithInitState(),
+        TTLMode.NoTTL(),
         TimeoutMode.NoTimeouts(),
         OutputMode.Append(),
         createInitialDfForTest)
@@ -270,6 +274,7 @@ class TransformWithStateInitialStateSuite extends StateStoreMetricsTest
       val query = inputData.toDS()
         .groupByKey(x => x.key)
         .transformWithState(new AccumulateStatefulProcessorWithInitState(),
+          TTLMode.NoTTL(),
           TimeoutMode.NoTimeouts(),
           OutputMode.Append(),
           initDf)

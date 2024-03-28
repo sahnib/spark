@@ -433,7 +433,7 @@ case class TransformWithStateExec(
       keyEncoder, ttlMode, timeoutMode, isStreaming)
     assert(processorHandle.getHandleState == StatefulProcessorHandleState.CREATED)
     statefulProcessor.setHandle(processorHandle)
-    statefulProcessor.init(outputMode, timeoutMode)
+    statefulProcessor.init(outputMode, timeoutMode, ttlMode)
     processorHandle.setHandleState(StatefulProcessorHandleState.INITIALIZED)
 
     // Check if is first batch
