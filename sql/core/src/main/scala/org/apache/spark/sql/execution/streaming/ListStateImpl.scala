@@ -78,14 +78,14 @@ class ListStateImpl[S](
      new Iterator[S] {
        override def hasNext: Boolean = {
          if (shouldGetNextValidRow) {
-           getNextValidRow()
+           setNextValidRow()
          }
          currentRow != null
        }
 
        override def next(): S = {
          if (shouldGetNextValidRow) {
-           getNextValidRow()
+           setNextValidRow()
          }
          if (currentRow == null) {
            throw new NoSuchElementException("Iterator is at the end")
@@ -96,18 +96,25 @@ class ListStateImpl[S](
 
        // sets currentRow to a valid state, where we are
        // pointing to a non-expired row
-       private def getNextValidRow(): Unit = {
+       private def setNextValidRow(): Unit = {
          assert(shouldGetNextValidRow)
+         logError(s"### in setNextValidRow")
+         shouldGetNextValidRow = false
+         if (unsafeRowValuesIterator.hasNext) {
+           currentRow = unsafeRowValuesIterator.next()
+         } else {
+           currentRow = null
+           return
+         }
          while (unsafeRowValuesIterator.hasNext && (isFirst || isExpired(currentRow))) {
            isFirst = false
            currentRow = unsafeRowValuesIterator.next()
          }
          // in this case, we have iterated to the end, and there are no
          // non-expired values
-         if (isExpired(currentRow)) {
+         if (currentRow != null && isExpired(currentRow)) {
            currentRow = null
          }
-         shouldGetNextValidRow = false
        }
      }
    }
@@ -202,9 +209,9 @@ class ListStateImpl[S](
   override def clearIfExpired(groupingKey: Array[Byte]): Unit = {
     val encodedKey = stateTypesEncoder.encodeGroupingKey()
     val unsafeRowValuesIterator = store.valuesIterator(encodedKey, stateName)
+    // We clear the list, and use the iterator to put back all of the non-expired values
     clear()
     var isFirst = true
-
     unsafeRowValuesIterator.foreach { encodedValue =>
       val encodedGroupingKey = stateTypesEncoder.encodeSerializedGroupingKey(groupingKey)
       if (encodedValue != null) {

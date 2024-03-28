@@ -82,17 +82,17 @@ object TTLInputProcessFunction {
     if (row.action == "get") {
       val currState = listState.get()
       currState.foreach { v =>
-        results = results :+ OutputEvent(key, v, isTTLValue = false, -1)
+        results = OutputEvent(key, v, isTTLValue = false, -1) :: results
       }
     } else if (row.action == "get_without_enforcing_ttl") {
       val currState = listState.getWithoutEnforcingTTL()
       currState.foreach { v =>
-        results = results :+ OutputEvent(key, v, isTTLValue = false, -1)
+        results = OutputEvent(key, v, isTTLValue = false, -1) :: results
       }
     } else if (row.action == "get_ttl_value_from_state") {
       val ttlExpiration = listState.getTTLValues()
       ttlExpiration.foreach { expiry =>
-        results = results :+ OutputEvent(key, -1, isTTLValue = true, expiry)
+        results = OutputEvent(key, -1, isTTLValue = true, expiry) :: results
       }
     } else if (row.action == "put") {
       listState.put(Array(row.value), row.ttl)
@@ -101,7 +101,7 @@ object TTLInputProcessFunction {
     } else if (row.action == "get_values_in_ttl_state") {
       val ttlValues = listState.getValuesInTTLState()
       ttlValues.foreach { v =>
-          results = results :+ OutputEvent(key, -1, isTTLValue = true, ttlValue = v)
+          results = OutputEvent(key, -1, isTTLValue = true, ttlValue = v) :: results
       }
     }
     results.iterator
@@ -612,7 +612,15 @@ class TransformWithStateTTLSuite
         // get this state, and make sure we get unexpired value
         AddData(inputStream, InputEvent("k1", "get", -1, null)),
         AdvanceManualClock(1 * 1000),
-        CheckNewAnswer(OutputEvent("k1", 1, isTTLValue = false, -1))
+        CheckNewAnswer(OutputEvent("k1", 1, isTTLValue = false, -1)),
+        AdvanceManualClock(60 * 1000),
+        // there should be no non-expired values in the list at this point
+        AddData(inputStream, InputEvent("k1", "get_without_enforcing_ttl", -1, null)),
+        AdvanceManualClock(1 * 1000),
+        CheckNewAnswer(OutputEvent("k1", 1, isTTLValue = false, -1)),
+        AddData(inputStream, InputEvent("k1", "get", -1, null)),
+        AdvanceManualClock(1 * 1000),
+        CheckNewAnswer()
       )
     }
   }
