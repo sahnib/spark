@@ -79,41 +79,38 @@ class ListStateImpl[S](
      val encodedKey = stateTypesEncoder.encodeGroupingKey()
      val unsafeRowValuesIterator = store.valuesIterator(encodedKey, stateName)
      var currentRow: UnsafeRow = null
-     var shouldGetNextValidRow = true
-     var isFirst = true
 
      new Iterator[S] {
        override def hasNext: Boolean = {
-         if (shouldGetNextValidRow) {
+         if (currentRow == null) {
            setNextValidRow()
          }
          currentRow != null
        }
 
        override def next(): S = {
-         if (shouldGetNextValidRow) {
+         if (currentRow == null) {
            setNextValidRow()
          }
          if (currentRow == null) {
            throw new NoSuchElementException("Iterator is at the end")
          }
-         shouldGetNextValidRow = true
-         stateTypesEncoder.decodeValue(currentRow)
+         val result = stateTypesEncoder.decodeValue(currentRow)
+         currentRow = null
+         result
        }
 
        // sets currentRow to a valid state, where we are
        // pointing to a non-expired row
        private def setNextValidRow(): Unit = {
-         assert(shouldGetNextValidRow)
-         shouldGetNextValidRow = false
+         assert(currentRow == null)
          if (unsafeRowValuesIterator.hasNext) {
            currentRow = unsafeRowValuesIterator.next()
          } else {
            currentRow = null
            return
          }
-         while (unsafeRowValuesIterator.hasNext && (isFirst || isExpired(currentRow))) {
-           isFirst = false
+         while (unsafeRowValuesIterator.hasNext && (currentRow == null || isExpired(currentRow))) {
            currentRow = unsafeRowValuesIterator.next()
          }
          // in this case, we have iterated to the end, and there are no

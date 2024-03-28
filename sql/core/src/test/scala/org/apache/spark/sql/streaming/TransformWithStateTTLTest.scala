@@ -98,7 +98,7 @@ object TTLInputProcessFunction {
     } else if (row.action == "put") {
       listState.put(Array(row.value), row.ttl)
     } else if (row.action == "append") {
-      listState.appendList(Array(row.value), row.ttl)
+      listState.appendValue(row.value, row.ttl)
     } else if (row.action == "get_values_in_ttl_state") {
       val ttlValues = listState.getValuesInTTLState()
       ttlValues.foreach { v =>
@@ -602,7 +602,64 @@ class ValueStateTTLSuite extends TransformWithStateTTLTest {
 
 class ListStateTTLSuite extends TransformWithStateTTLTest {
 
+  import testImplicits._
+
   override def getProcessor(): StatefulProcessor[String, InputEvent, OutputEvent] = {
     new ListStateTTLProcessor()
+  }
+
+  test("verify iterator works with expired values in middle of list - processing time ttl") {
+    withSQLConf(SQLConf.STATE_STORE_PROVIDER_CLASS.key ->
+      classOf[RocksDBStateStoreProvider].getName,
+      SQLConf.SHUFFLE_PARTITIONS.key -> "1") {
+      val inputStream = MemoryStream[InputEvent]
+      val result = inputStream.toDS()
+        .groupByKey(x => x.key)
+        .transformWithState(
+          getProcessor(),
+          TimeoutMode.NoTimeouts(),
+          TTLMode.ProcessingTimeTTL())
+
+      val clock = new StreamManualClock
+      testStream(result)(
+        StartStream(Trigger.ProcessingTime("1 second"), triggerClock = clock),
+        // Add three elements with duration of a minute
+        AddData(inputStream, InputEvent("k1", "put", 1, Duration.ofMinutes(1))),
+        AdvanceManualClock(1 * 1000),
+        AddData(inputStream, InputEvent("k1", "append", 2, Duration.ofMinutes(1))),
+        AddData(inputStream, InputEvent("k1", "append", 3, Duration.ofMinutes(1))),
+        // advance clock to trigger processing
+        AdvanceManualClock(1 * 1000),
+        CheckNewAnswer(),
+        // Add three elements with a duration of 15 seconds
+        AddData(inputStream, InputEvent("k1", "append", 4, Duration.ofSeconds(15))),
+        AddData(inputStream, InputEvent("k1", "append", 5, Duration.ofSeconds(15))),
+        AddData(inputStream, InputEvent("k1", "append", 6, Duration.ofSeconds(15))),
+        // advance clock to trigger processing
+        AdvanceManualClock(1 * 1000),
+        CheckNewAnswer(),
+        // Add three elements with a duration of a minute
+        AddData(inputStream, InputEvent("k1", "append", 7, Duration.ofMinutes(1))),
+        AddData(inputStream, InputEvent("k1", "append", 8, Duration.ofMinutes(1))),
+        AddData(inputStream, InputEvent("k1", "append", 9, Duration.ofMinutes(1))),
+        // advance clock to trigger processing
+        AdvanceManualClock(1 * 1000),
+        CheckNewAnswer(),
+        // Advance clock to expire the middle three elements
+        AdvanceManualClock(30 * 1000),
+        // Get all elements in the list
+        AddData(inputStream, InputEvent("k1", "get", -1, null)),
+        AdvanceManualClock(1 * 1000),
+        // Validate that the expired elements are not returned
+        CheckNewAnswer(
+          OutputEvent("k1", 1, isTTLValue = false, -1),
+          OutputEvent("k1", 2, isTTLValue = false, -1),
+          OutputEvent("k1", 3, isTTLValue = false, -1),
+          OutputEvent("k1", 7, isTTLValue = false, -1),
+          OutputEvent("k1", 8, isTTLValue = false, -1),
+          OutputEvent("k1", 9, isTTLValue = false, -1)
+        )
+      )
+    }
   }
 }
