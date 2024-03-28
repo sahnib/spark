@@ -23,7 +23,7 @@ import java.time.temporal.ChronoUnit
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.Encoders
-import org.apache.spark.sql.execution.streaming.{MemoryStream, ValueStateImpl}
+import org.apache.spark.sql.execution.streaming.{ListStateImpl, MemoryStream, ValueStateImpl}
 import org.apache.spark.sql.execution.streaming.state.RocksDBStateStoreProvider
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.streaming.util.StreamManualClock
@@ -73,6 +73,39 @@ object TTLInputProcessFunction {
 
     results.iterator
   }
+
+  def processRow(
+      row: InputEvent,
+      listState: ListStateImpl[Int]): Iterator[OutputEvent] = {
+    val key = row.key
+    var results = List[OutputEvent]()
+    if (row.action == "get") {
+      val currState = listState.get()
+      currState.foreach { v =>
+        results = results :+ OutputEvent(key, v, isTTLValue = false, -1)
+      }
+    } else if (row.action == "get_without_enforcing_ttl") {
+      val currState = listState.getWithoutEnforcingTTL()
+      currState.foreach { v =>
+        results = results :+ OutputEvent(key, v, isTTLValue = false, -1)
+      }
+    } else if (row.action == "get_ttl_value_from_state") {
+      val ttlExpiration = listState.getTTLValues()
+      ttlExpiration.foreach { expiry =>
+        results = results :+ OutputEvent(key, -1, isTTLValue = true, expiry)
+      }
+    } else if (row.action == "put") {
+      listState.put(Array(row.value), row.ttl)
+    } else if (row.action == "append") {
+      listState.appendList(Array(row.value), row.ttl)
+    } else if (row.action == "get_values_in_ttl_state") {
+      val ttlValues = listState.getValuesInTTLState()
+      ttlValues.foreach { v =>
+          results = results :+ OutputEvent(key, -1, isTTLValue = true, ttlValue = v)
+      }
+    }
+    results.iterator
+  }
 }
 
 class ValueStateTTLProcessor
@@ -96,6 +129,36 @@ class ValueStateTTLProcessor
 
     for (row <- inputRows) {
       val resultIter = TTLInputProcessFunction.processRow(row, _valueState)
+      resultIter.foreach { r =>
+        results = r :: results
+      }
+    }
+
+    results.iterator
+  }
+}
+
+class ListStateTTLProcessor
+  extends StatefulProcessor[String, InputEvent, OutputEvent]
+    with Logging {
+
+  @transient private var _listState: ListStateImpl[Int] = _
+
+  override def init(outputMode: OutputMode, timeoutMode: TimeoutMode): Unit = {
+    _listState = getHandle
+      .getListState("listState", Encoders.scalaInt)
+      .asInstanceOf[ListStateImpl[Int]]
+  }
+
+  override def handleInputRows(
+      key: String,
+      inputRows: Iterator[InputEvent],
+      timerValues: TimerValues,
+      expiredTimerInfo: ExpiredTimerInfo): Iterator[OutputEvent] = {
+    var results = List[OutputEvent]()
+
+    for (row <- inputRows) {
+      val resultIter = TTLInputProcessFunction.processRow(row, _listState)
       resultIter.foreach { r =>
         results = r :: results
       }
@@ -520,6 +583,36 @@ class TransformWithStateTTLSuite
         // validate that the older expiration value is removed from ttl state
         AddData(inputStream, InputEvent("k1", "get_values_in_ttl_state", -1, null)),
         CheckNewAnswer()
+      )
+    }
+  }
+
+
+  test("list state ttl") {
+    withSQLConf(SQLConf.STATE_STORE_PROVIDER_CLASS.key ->
+      classOf[RocksDBStateStoreProvider].getName,
+      SQLConf.SHUFFLE_PARTITIONS.key -> "1") {
+
+      val inputStream = MemoryStream[InputEvent]
+      val result = inputStream.toDS()
+        .groupByKey(x => x.key)
+        .transformWithState(
+          new ListStateTTLProcessor(),
+          TimeoutMode.NoTimeouts(),
+          TTLMode.ProcessingTimeTTL())
+
+      val clock = new StreamManualClock
+
+      testStream(result)(
+        StartStream(Trigger.ProcessingTime("1 second"), triggerClock = clock),
+        AddData(inputStream, InputEvent("k1", "put", 1, Duration.ofMinutes(1))),
+        // advance clock to trigger processing
+        AdvanceManualClock(1 * 1000),
+        CheckNewAnswer(),
+        // get this state, and make sure we get unexpired value
+        AddData(inputStream, InputEvent("k1", "get", -1, null)),
+        AdvanceManualClock(1 * 1000),
+        CheckNewAnswer(OutputEvent("k1", 1, isTTLValue = false, -1))
       )
     }
   }
