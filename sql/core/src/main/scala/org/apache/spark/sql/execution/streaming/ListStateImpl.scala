@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.execution.streaming
 
+import java.time.Duration
+
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.Encoder
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
@@ -74,7 +76,7 @@ class ListStateImpl[S](
    }
 
    /** Update the value of the list. */
-   override def put(newState: Array[S]): Unit = {
+   override def put(newState: Array[S], ttlDuration: Duration = Duration.ZERO): Unit = {
      validateNewState(newState)
 
      val encodedKey = stateTypesEncoder.encodeGroupingKey()
@@ -92,14 +94,14 @@ class ListStateImpl[S](
    }
 
    /** Append an entry to the list. */
-   override def appendValue(newState: S): Unit = {
+   override def appendValue(newState: S, ttlDuration: Duration = Duration.ZERO): Unit = {
      StateStoreErrors.requireNonNullStateValue(newState, stateName)
      store.merge(stateTypesEncoder.encodeGroupingKey(),
          stateTypesEncoder.encodeValue(newState), stateName)
    }
 
    /** Append an entire list to the existing value. */
-   override def appendList(newState: Array[S]): Unit = {
+   override def appendList(newState: Array[S], ttlDuration: Duration = Duration.ZERO): Unit = {
      validateNewState(newState)
 
      val encodedKey = stateTypesEncoder.encodeGroupingKey()
