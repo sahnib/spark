@@ -157,6 +157,28 @@ class ListStateImplWithTTL[S](
       serializedGroupingKey)
   }
 
+  /** Update the value of the list. */
+  def put(newState: Array[S], expirationMs: Long): Unit = {
+    validateNewState(newState)
+    logError(s"### in put for ListState")
+    val encodedKey = stateTypesEncoder.encodeGroupingKey()
+    val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
+    var isFirst = true
+
+    newState.foreach { v =>
+      val encodedValue = stateTypesEncoder.encodeValue(v, expirationMs)
+      logError(s"### in put loop for ListState")
+      if (isFirst) {
+        store.put(encodedKey, encodedValue, stateName)
+        isFirst = false
+      } else {
+        store.merge(encodedKey, encodedValue, stateName)
+      }
+    }
+    ttlState.upsertTTLForStateKey(expirationMs,
+      serializedGroupingKey)
+  }
+
   /** Append an entry to the list. */
   override def appendValue(newState: S, ttlDuration: Duration = Duration.ZERO): Unit = {
     StateStoreErrors.requireNonNullStateValue(newState, stateName)
@@ -181,6 +203,30 @@ class ListStateImplWithTTL[S](
       expirationMs = StateTTL.calculateExpirationTimeForDuration(
         ttlMode, ttlDuration, batchTimestampMs, eventTimeWatermarkMs)
     }
+
+    val encodedKey = stateTypesEncoder.encodeGroupingKey()
+    newState.foreach { v =>
+      val encodedValue = stateTypesEncoder.encodeValue(v, expirationMs)
+      store.merge(encodedKey, encodedValue, stateName)
+    }
+    ttlState.upsertTTLForStateKey(expirationMs,
+      stateTypesEncoder.serializeGroupingKey())
+  }
+
+  /** Append an entry to the list. */
+  def appendValue(newState: S, expirationMs: Long): Unit = {
+    StateStoreErrors.requireNonNullStateValue(newState, stateName)
+
+    val encodedValue = stateTypesEncoder.encodeValue(newState, expirationMs)
+    store.merge(stateTypesEncoder.encodeGroupingKey(),
+      encodedValue, stateName)
+    ttlState.upsertTTLForStateKey(expirationMs,
+      stateTypesEncoder.serializeGroupingKey())
+  }
+
+  /** Append an entire list to the existing value. */
+  def appendList(newState: Array[S], expirationMs: Long): Unit = {
+    validateNewState(newState)
 
     val encodedKey = stateTypesEncoder.encodeGroupingKey()
     newState.foreach { v =>

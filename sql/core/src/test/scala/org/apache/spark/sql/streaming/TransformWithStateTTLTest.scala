@@ -82,10 +82,11 @@ object TTLInputProcessFunction {
   }
 
   def processRow(
+    ttlMode: TTLMode,
     row: InputEvent,
     listState: ListStateImplWithTTL[Int]): Iterator[OutputEvent] = {
-    val key = row.key
     var results = List[OutputEvent]()
+    val key = row.key
     if (row.action == "get") {
       val currState = listState.get()
       currState.foreach { v =>
@@ -97,21 +98,33 @@ object TTLInputProcessFunction {
         results = OutputEvent(key, v, isTTLValue = false, -1) :: results
       }
     } else if (row.action == "get_ttl_value_from_state") {
-      val ttlExpirations = listState.getTTLValues()
-      // for all values ttlExpiration for which isDefined is true, add to results
-      ttlExpirations.filter(_.isDefined).foreach { expiry =>
-        results = OutputEvent(key, -1, isTTLValue = true, expiry.get) :: results
+      val ttlExpiration = listState.getTTLValues()
+      ttlExpiration.filter(_.isDefined).foreach { v =>
+        results = OutputEvent(key, -1, isTTLValue = false, v.get) :: results
       }
     } else if (row.action == "put") {
-      listState.put(Array(row.value), row.ttl)
+      if (ttlMode == TTLMode.EventTimeTTL() && row.eventTimeTtl != null) {
+        listState.put(Array(row.value), row.eventTimeTtl.getTime)
+      } else if (ttlMode == TTLMode.EventTimeTTL()) {
+        listState.put(Array(row.value))
+      } else {
+        listState.put(Array(row.value), row.ttl)
+      }
     } else if (row.action == "append") {
-      listState.appendValue(row.value, row.ttl)
+      if (ttlMode == TTLMode.EventTimeTTL() && row.eventTimeTtl != null) {
+        listState.appendValue(row.value, row.eventTimeTtl.getTime)
+      } else if (ttlMode == TTLMode.EventTimeTTL()) {
+        listState.appendValue(row.value)
+      } else {
+        listState.appendValue(row.value, row.ttl)
+      }
     } else if (row.action == "get_values_in_ttl_state") {
       val ttlValues = listState.getValuesInTTLState()
       ttlValues.foreach { v =>
         results = OutputEvent(key, -1, isTTLValue = true, ttlValue = v) :: results
       }
     }
+
     results.iterator
   }
 }
@@ -221,7 +234,7 @@ class ListStateTTLProcessor
     var results = List[OutputEvent]()
 
     for (row <- inputRows) {
-      val resultIter = TTLInputProcessFunction.processRow(row, _listState)
+      val resultIter = TTLInputProcessFunction.processRow(_ttlMode, row, _listState)
       resultIter.foreach { r =>
         results = r :: results
       }
