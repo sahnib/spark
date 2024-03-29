@@ -123,7 +123,7 @@ class ListStateImplWithTTL[S](
         // in this case, we have iterated to the end, and there are no
         // non-expired values
         if (currentRow != null && isExpired(currentRow)) {
-          logError(s"### setting currentRow to null")
+          logError(s"### setting currentRow to null as it is expired")
           currentRow = null
         }
         logError(s"### setNextValidRow: currentRow is null = ${currentRow == null}")
