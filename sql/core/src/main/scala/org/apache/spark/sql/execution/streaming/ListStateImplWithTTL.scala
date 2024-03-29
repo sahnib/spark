@@ -109,6 +109,7 @@ class ListStateImplWithTTL[S](
         logError(s"### at the top of setNextValidRow, hasNext = ${unsafeRowValuesIterator.hasNext}")
         if (unsafeRowValuesIterator.hasNext) {
           currentRow = unsafeRowValuesIterator.next()
+          return
         } else {
           currentRow = null
           return
@@ -146,7 +147,7 @@ class ListStateImplWithTTL[S](
       } else {
         -1
       }
-
+    logError(s"### listState expirationMs: ${expirationMs}")
     newState.foreach { v =>
       val encodedValue = stateTypesEncoder.encodeValue(v, expirationMs)
       logError(s"### in put loop for ListState")

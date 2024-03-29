@@ -115,6 +115,7 @@ class ValueStateImplWithTTL[S](
         -1
       }
 
+    logError(s"### valueState expirationMs: ${expirationMs}")
     val encodedValue = stateTypesEncoder.encodeValue(newState, expirationMs)
 
     val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()

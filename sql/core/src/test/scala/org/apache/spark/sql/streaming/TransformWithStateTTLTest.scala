@@ -41,7 +41,7 @@ case class OutputEvent(
     isTTLValue: Boolean,
     ttlValue: Long)
 
-object TTLInputProcessFunction {
+object TTLInputProcessFunction extends Logging {
   def processRow(
       ttlMode: TTLMode,
       row: InputEvent,
@@ -88,21 +88,25 @@ object TTLInputProcessFunction {
     var results = List[OutputEvent]()
     val key = row.key
     if (row.action == "get") {
+      logError(s"### get")
       val currState = listState.get()
       currState.foreach { v =>
         results = OutputEvent(key, v, isTTLValue = false, -1) :: results
       }
     } else if (row.action == "get_without_enforcing_ttl") {
+      logError(s"### get without enforcing ttl")
       val currState = listState.getWithoutEnforcingTTL()
       currState.foreach { v =>
         results = OutputEvent(key, v, isTTLValue = false, -1) :: results
       }
     } else if (row.action == "get_ttl_value_from_state") {
+      logError(s"### get ttl value from state")
       val ttlExpiration = listState.getTTLValues()
       ttlExpiration.filter(_.isDefined).foreach { v =>
         results = OutputEvent(key, -1, isTTLValue = false, v.get) :: results
       }
     } else if (row.action == "put") {
+      logError(s"### put")
       if (ttlMode == TTLMode.EventTimeTTL() && row.eventTimeTtl != null) {
         listState.put(Array(row.value), row.eventTimeTtl.getTime)
       } else if (ttlMode == TTLMode.EventTimeTTL()) {
@@ -111,6 +115,7 @@ object TTLInputProcessFunction {
         listState.put(Array(row.value), row.ttl)
       }
     } else if (row.action == "append") {
+      logError(s"### append")
       if (ttlMode == TTLMode.EventTimeTTL() && row.eventTimeTtl != null) {
         listState.appendValue(row.value, row.eventTimeTtl.getTime)
       } else if (ttlMode == TTLMode.EventTimeTTL()) {
@@ -119,6 +124,7 @@ object TTLInputProcessFunction {
         listState.appendValue(row.value, row.ttl)
       }
     } else if (row.action == "get_values_in_ttl_state") {
+      logError(s"### get values in ttl state")
       val ttlValues = listState.getValuesInTTLState()
       ttlValues.foreach { v =>
         results = OutputEvent(key, -1, isTTLValue = true, ttlValue = v) :: results

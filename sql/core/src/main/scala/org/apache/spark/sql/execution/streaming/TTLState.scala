@@ -155,7 +155,7 @@ class SingleKeyTTLStateImpl(
 /**
  * Helper methods for user State TTL.
  */
-object StateTTL {
+object StateTTL extends Logging {
   def calculateExpirationTimeForDuration(
       ttlMode: TTLMode,
       ttlDuration: Duration,
@@ -177,6 +177,7 @@ object StateTTL {
       batchTimestampMs: Option[Long],
       eventTimeWatermarkMs: Option[Long]): Boolean = {
     if (ttlMode == TTLMode.ProcessingTimeTTL()) {
+      logError(s"### batchTimestampMs: ${batchTimestampMs.get}, expirationMs: ${expirationMs}")
       batchTimestampMs.get >= expirationMs
     } else if (ttlMode == TTLMode.EventTimeTTL()) {
       eventTimeWatermarkMs.get >= expirationMs
