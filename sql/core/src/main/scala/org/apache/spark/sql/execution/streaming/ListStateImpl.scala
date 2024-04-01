@@ -77,6 +77,9 @@ class ListStateImpl[S](
 
    /** Update the value of the list. */
    override def put(newState: Array[S], ttlDuration: Duration = Duration.ZERO): Unit = {
+     if (ttlDuration != Duration.ZERO) {
+       throw StateStoreErrors.cannotProvideTTLDurationForNoTTLMode("put", stateName)
+     }
      validateNewState(newState)
 
      val encodedKey = stateTypesEncoder.encodeGroupingKey()
@@ -95,6 +98,9 @@ class ListStateImpl[S](
 
    /** Append an entry to the list. */
    override def appendValue(newState: S, ttlDuration: Duration = Duration.ZERO): Unit = {
+     if (ttlDuration != Duration.ZERO) {
+       throw StateStoreErrors.cannotProvideTTLDurationForNoTTLMode("append", stateName)
+     }
      StateStoreErrors.requireNonNullStateValue(newState, stateName)
      store.merge(stateTypesEncoder.encodeGroupingKey(),
          stateTypesEncoder.encodeValue(newState), stateName)
@@ -102,6 +108,9 @@ class ListStateImpl[S](
 
    /** Append an entire list to the existing value. */
    override def appendList(newState: Array[S], ttlDuration: Duration = Duration.ZERO): Unit = {
+     if (ttlDuration != Duration.ZERO) {
+       throw StateStoreErrors.cannotProvideTTLDurationForNoTTLMode("append", stateName)
+     }
      validateNewState(newState)
 
      val encodedKey = stateTypesEncoder.encodeGroupingKey()
@@ -113,6 +122,9 @@ class ListStateImpl[S](
 
   /** Update the value of the list. */
   override def put(newState: Array[S], expirationMs: Long): Unit = {
+    if (expirationMs != -1) {
+      throw StateStoreErrors.cannotProvideTTLDurationForNoTTLMode("put", stateName)
+    }
     validateNewState(newState)
 
     val encodedKey = stateTypesEncoder.encodeGroupingKey()
@@ -131,6 +143,10 @@ class ListStateImpl[S](
 
   /** Append an entry to the list. */
   override def appendValue(newState: S, expirationMs: Long): Unit = {
+    if (expirationMs != -1) {
+      throw StateStoreErrors.cannotProvideTTLDurationForNoTTLMode("append", stateName)
+    }
+
     StateStoreErrors.requireNonNullStateValue(newState, stateName)
     store.merge(stateTypesEncoder.encodeGroupingKey(),
       stateTypesEncoder.encodeValue(newState), stateName)
@@ -138,6 +154,9 @@ class ListStateImpl[S](
 
   /** Append an entire list to the existing value. */
   override def appendList(newState: Array[S], expirationMs: Long): Unit = {
+    if (expirationMs != -1) {
+      throw StateStoreErrors.cannotProvideTTLDurationForNoTTLMode("append", stateName)
+    }
     validateNewState(newState)
 
     val encodedKey = stateTypesEncoder.encodeGroupingKey()
