@@ -85,7 +85,7 @@ class ListStateImplWithTTL[S](
         if (currentRow == null) {
           setNextValidRow()
         }
-        
+
         currentRow != null
       }
 
@@ -143,7 +143,6 @@ class ListStateImplWithTTL[S](
         -1
       }
 
-    
     val encodedKey = stateTypesEncoder.encodeGroupingKey()
     var isFirst = true
 
@@ -156,8 +155,10 @@ class ListStateImplWithTTL[S](
         store.merge(encodedKey, encodedValue, stateName)
       }
     }
-    val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
-    ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
+    if (expirationMs != -1) {
+      val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
+      ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
+    }
   }
 
   /** Append an entry to the list. */
@@ -177,11 +178,12 @@ class ListStateImplWithTTL[S](
         -1
       }
 
-    
     store.merge(stateTypesEncoder.encodeGroupingKey(),
       stateTypesEncoder.encodeValue(newState, expirationMs), stateName)
-    val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
-    ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
+    if (expirationMs != -1) {
+      val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
+      ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
+    }
   }
 
   /** Append an entire list to the existing value. */
@@ -201,14 +203,15 @@ class ListStateImplWithTTL[S](
         -1
       }
 
-    
     val encodedKey = stateTypesEncoder.encodeGroupingKey()
     newState.foreach { v =>
       val encodedValue = stateTypesEncoder.encodeValue(v, expirationMs)
       store.merge(encodedKey, encodedValue, stateName)
     }
-    val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
-    ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
+    if (expirationMs != -1) {
+      val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
+      ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
+    }
   }
 
   /** Update the value of the list. */
@@ -227,8 +230,10 @@ class ListStateImplWithTTL[S](
         store.merge(encodedKey, encodedValue, stateName)
       }
     }
-    val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
-    ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
+    if (expirationMs != -1) {
+      val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
+      ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
+    }
   }
 
   /** Append an entry to the list. */
@@ -247,8 +252,10 @@ class ListStateImplWithTTL[S](
       val encodedValue = stateTypesEncoder.encodeValue(v, expirationMs)
       store.merge(encodedKey, encodedValue, stateName)
     }
-    val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
-    ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
+    if (expirationMs != -1) {
+      val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
+      ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
+    }
   }
 
   /** Remove this state. */
@@ -306,10 +313,10 @@ class ListStateImplWithTTL[S](
   }
 
   /*
-   * Internal methods to probe state for testing. The below methods exist for unit tests
-   * to read the state ttl values, and ensure that values are persisted correctly in
-   * the underlying  state store.
-   */
+     * Internal methods to probe state for testing. The below methods exist for unit tests
+     * to read the state ttl values, and ensure that values are persisted correctly in
+     * the underlying  state store.
+     */
 
   /**
    * Retrieves the value from State even if its expired. This method is used
@@ -317,12 +324,13 @@ class ListStateImplWithTTL[S](
    * end of the micro-batch.
    */
   private[sql] def getWithoutEnforcingTTL(): Iterator[S] = {
-    val encodedKey = stateTypesEncoder.encodeGroupingKey()
-    val unsafeRowValuesIterator = store.valuesIterator(encodedKey, stateName)
+    val encodedGroupingKey = stateTypesEncoder.encodeGroupingKey()
+    val unsafeRowValuesIterator = store.valuesIterator(encodedGroupingKey, stateName)
     new Iterator[S] {
       override def hasNext: Boolean = {
         unsafeRowValuesIterator.hasNext
       }
+
       override def next(): S = {
         val valueUnsafeRow = unsafeRowValuesIterator.next()
         stateTypesEncoder.decodeValue(valueUnsafeRow)
@@ -334,8 +342,8 @@ class ListStateImplWithTTL[S](
    * Read the ttl value associated with the grouping key.
    */
   private[sql] def getTTLValues(): Iterator[Option[Long]] = {
-    val encodedKey = stateTypesEncoder.encodeGroupingKey()
-    val unsafeRowValuesIterator = store.valuesIterator(encodedKey, stateName)
+    val encodedGroupingKey = stateTypesEncoder.encodeGroupingKey()
+    val unsafeRowValuesIterator = store.valuesIterator(encodedGroupingKey, stateName)
     new Iterator[Option[Long]] {
       override def hasNext: Boolean = {
         unsafeRowValuesIterator.hasNext
@@ -353,7 +361,6 @@ class ListStateImplWithTTL[S](
    * grouping key.
    */
   private[sql] def getValuesInTTLState(): Iterator[Long] = {
-
     val ttlIterator = ttlState.iterator()
     val implicitGroupingKey = stateTypesEncoder.serializeGroupingKey()
     var nextValue: Option[Long] = None
