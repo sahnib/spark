@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.streaming
 
+import java.time.Duration
+
 import org.apache.spark.annotation.{Evolving, Experimental}
 
 @Experimental
@@ -33,13 +35,22 @@ private[sql] trait ListState[S] extends Serializable {
   def get(): Iterator[S]
 
   /** Update the value of the list. */
-  def put(newState: Array[S]): Unit
+  def put(newState: Array[S], ttlDuration: Duration = Duration.ZERO): Unit
 
   /** Append an entry to the list */
-  def appendValue(newState: S): Unit
+  def appendValue(newState: S, ttlDuration: Duration = Duration.ZERO): Unit
 
   /** Append an entire list to the existing value */
-  def appendList(newState: Array[S]): Unit
+  def appendList(newState: Array[S], ttlDuration: Duration = Duration.ZERO): Unit
+
+  /** Update the value of the list. */
+  def put(newState: Array[S], expirationMs: Long): Unit
+
+  /** Append an entry to the list */
+  def appendValue(newState: S, expirationMs: Long): Unit
+
+  /** Append an entire list to the existing value */
+  def appendList(newState: Array[S], expirationMs: Long): Unit
 
   /** Removes this state for the given grouping key. */
   def clear(): Unit
