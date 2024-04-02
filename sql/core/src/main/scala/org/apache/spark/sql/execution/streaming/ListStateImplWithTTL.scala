@@ -18,7 +18,6 @@ package org.apache.spark.sql.execution.streaming
 
 import java.time.Duration
 
-import org.apache.spark.internal.Logging
 import org.apache.spark.sql.Encoder
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow
@@ -42,16 +41,13 @@ class ListStateImplWithTTL[S](
     keyExprEnc: ExpressionEncoder[Any],
     valEncoder: Encoder[S],
     ttlMode: TTLMode,
-    batchTimestampMs: Option[Long],
-    eventTimeWatermarkMs: Option[Long])
-  extends ListState[S]
-    with Logging
-    with StateVariableWithTTLSupport {
+    batchTtlExpirationMs: Long)
+  extends SingleKeyTTLStateImpl(stateName, store, batchTtlExpirationMs)
+  with ListState[S] {
 
   private val keySerializer = keyExprEnc.createSerializer()
   private val stateTypesEncoder = StateTypesEncoder(keySerializer,
     valEncoder, stateName, hasTtl = true)
-  private[sql] var ttlState: SingleKeyTTLStateImpl = _
 
   initialize()
 
@@ -59,9 +55,6 @@ class ListStateImplWithTTL[S](
     assert(ttlMode != TTLMode.NoTTL())
     store.createColFamilyIfAbsent(stateName, KEY_ROW_SCHEMA, VALUE_ROW_SCHEMA_WITH_TTL,
       NoPrefixKeyStateEncoderSpec(KEY_ROW_SCHEMA), useMultipleValuesPerKey = true)
-
-    ttlState = new SingleKeyTTLStateImpl(ttlMode, stateName, store,
-      batchTimestampMs, eventTimeWatermarkMs)
   }
 
   /** Whether state exists or not. */
@@ -135,30 +128,19 @@ class ListStateImplWithTTL[S](
         "put", stateName)
     }
 
+    if (ttlDuration != null && ttlDuration.isNegative) {
+      throw StateStoreErrors.ttlCannotBeNegative("put", stateName)
+    }
+
     val expirationMs =
       if (ttlDuration != null && ttlDuration != Duration.ZERO) {
         StateTTL.calculateExpirationTimeForDuration(
-          ttlMode, ttlDuration, batchTimestampMs, eventTimeWatermarkMs)
+          ttlDuration, batchTtlExpirationMs)
       } else {
         -1
       }
 
-    val encodedKey = stateTypesEncoder.encodeGroupingKey()
-    var isFirst = true
-
-    newState.foreach { v =>
-      val encodedValue = stateTypesEncoder.encodeValue(v, expirationMs)
-      if (isFirst) {
-        store.put(encodedKey, encodedValue, stateName)
-        isFirst = false
-      } else {
-        store.merge(encodedKey, encodedValue, stateName)
-      }
-    }
-    if (expirationMs != -1) {
-      val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
-      ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
-    }
+    doPut(newState, expirationMs)
   }
 
   /** Append an entry to the list. */
@@ -170,20 +152,19 @@ class ListStateImplWithTTL[S](
         "appendValue", stateName)
     }
 
+    if (ttlDuration != null && ttlDuration.isNegative) {
+      throw StateStoreErrors.ttlCannotBeNegative("appendValue", stateName)
+    }
+
     val expirationMs =
       if (ttlDuration != null && ttlDuration != Duration.ZERO) {
         StateTTL.calculateExpirationTimeForDuration(
-          ttlMode, ttlDuration, batchTimestampMs, eventTimeWatermarkMs)
+          ttlDuration, batchTtlExpirationMs)
       } else {
         -1
       }
 
-    store.merge(stateTypesEncoder.encodeGroupingKey(),
-      stateTypesEncoder.encodeValue(newState, expirationMs), stateName)
-    if (expirationMs != -1) {
-      val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
-      ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
-    }
+    doAppendValue(newState, expirationMs)
   }
 
   /** Append an entire list to the existing value. */
@@ -195,34 +176,63 @@ class ListStateImplWithTTL[S](
         "appendList", stateName)
     }
 
+    if (ttlDuration != null && ttlDuration.isNegative) {
+      throw StateStoreErrors.ttlCannotBeNegative("appendList", stateName)
+    }
+
     val expirationMs =
       if (ttlDuration != null && ttlDuration != Duration.ZERO) {
         StateTTL.calculateExpirationTimeForDuration(
-          ttlMode, ttlDuration, batchTimestampMs, eventTimeWatermarkMs)
+         ttlDuration, batchTtlExpirationMs)
       } else {
         -1
       }
 
-    val encodedKey = stateTypesEncoder.encodeGroupingKey()
-    newState.foreach { v =>
-      val encodedValue = stateTypesEncoder.encodeValue(v, expirationMs)
-      store.merge(encodedKey, encodedValue, stateName)
-    }
-    if (expirationMs != -1) {
-      val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
-      ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
-    }
+    doAppendList(newState, expirationMs)
   }
 
   /** Update the value of the list. */
-  override def put(newState: Array[S], expirationMs: Long): Unit = {
+  override def put(newState: Array[S], expirationTimeInMs: Long): Unit = {
     validateNewState(newState)
 
+    if (expirationTimeInMs < 0) {
+      throw StateStoreErrors.ttlCannotBeNegative(
+        "put", stateName)
+    }
+
+    doPut(newState, expirationTimeInMs)
+  }
+
+  /** Append an entry to the list. */
+  override def appendValue(newState: S, expirationTimeInMs: Long): Unit = {
+    StateStoreErrors.requireNonNullStateValue(newState, stateName)
+
+    if (expirationTimeInMs < 0) {
+      throw StateStoreErrors.ttlCannotBeNegative(
+        "appendValue", stateName)
+    }
+
+    doAppendValue(newState, expirationTimeInMs)
+  }
+
+  /** Append an entire list to the existing value. */
+  override def appendList(newState: Array[S], expirationTimeInMs: Long): Unit = {
+    validateNewState(newState)
+
+    if (expirationTimeInMs < 0) {
+      throw StateStoreErrors.ttlCannotBeNegative(
+        "appendList", stateName)
+    }
+
+    doAppendList(newState, expirationTimeInMs)
+  }
+
+  private def doPut(newState: Array[S], expirationTimeInMs: Long): Unit = {
     val encodedKey = stateTypesEncoder.encodeGroupingKey()
     var isFirst = true
 
     newState.foreach { v =>
-      val encodedValue = stateTypesEncoder.encodeValue(v, expirationMs)
+      val encodedValue = stateTypesEncoder.encodeValue(v, expirationTimeInMs)
       if (isFirst) {
         store.put(encodedKey, encodedValue, stateName)
         isFirst = false
@@ -230,31 +240,30 @@ class ListStateImplWithTTL[S](
         store.merge(encodedKey, encodedValue, stateName)
       }
     }
-    if (expirationMs != -1) {
+    if (expirationTimeInMs != -1) {
       val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
-      ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
+      upsertTTLForStateKey(expirationTimeInMs, serializedGroupingKey)
     }
   }
 
-  /** Append an entry to the list. */
-  override def appendValue(newState: S, expirationMs: Long): Unit = {
-    StateStoreErrors.requireNonNullStateValue(newState, stateName)
-    store.merge(stateTypesEncoder.encodeGroupingKey(),
-      stateTypesEncoder.encodeValue(newState, expirationMs), stateName)
-  }
-
-  /** Append an entire list to the existing value. */
-  override def appendList(newState: Array[S], expirationMs: Long): Unit = {
-    validateNewState(newState)
-
+  private def doAppendList(newState: Array[S], expirationTimeInMs: Long): Unit = {
     val encodedKey = stateTypesEncoder.encodeGroupingKey()
     newState.foreach { v =>
-      val encodedValue = stateTypesEncoder.encodeValue(v, expirationMs)
+      val encodedValue = stateTypesEncoder.encodeValue(v, expirationTimeInMs)
       store.merge(encodedKey, encodedValue, stateName)
     }
-    if (expirationMs != -1) {
+    if (expirationTimeInMs != -1) {
       val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
-      ttlState.upsertTTLForStateKey(expirationMs, serializedGroupingKey)
+      upsertTTLForStateKey(expirationTimeInMs, serializedGroupingKey)
+    }
+  }
+
+  private def doAppendValue(newState: S, expirationTimeInMs: Long): Unit = {
+    store.merge(stateTypesEncoder.encodeGroupingKey(),
+      stateTypesEncoder.encodeValue(newState, expirationTimeInMs), stateName)
+    if (expirationTimeInMs != -1) {
+      val serializedGroupingKey = stateTypesEncoder.serializeGroupingKey()
+      upsertTTLForStateKey(expirationTimeInMs, serializedGroupingKey)
     }
   }
 
@@ -307,7 +316,7 @@ class ListStateImplWithTTL[S](
     val expirationMs = stateTypesEncoder.decodeTtlExpirationMs(valueRow)
 
     val isExpired = expirationMs.map(
-      StateTTL.isExpired(ttlMode, _, batchTimestampMs, eventTimeWatermarkMs))
+      StateTTL.isExpired(_, batchTtlExpirationMs))
 
     isExpired.isDefined && isExpired.get
   }
@@ -361,7 +370,7 @@ class ListStateImplWithTTL[S](
    * grouping key.
    */
   private[sql] def getValuesInTTLState(): Iterator[Long] = {
-    val ttlIterator = ttlState.iterator()
+    val ttlIterator = ttlIndexIterator()
     val implicitGroupingKey = stateTypesEncoder.serializeGroupingKey()
     var nextValue: Option[Long] = None
 
