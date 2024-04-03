@@ -154,7 +154,7 @@ class StatefulProcessorHandleImpl(
       new ListStateImpl[T](store, stateName, keyEncoder, valEncoder)
     } else {
       val listStateWithTTL = new ListStateImplWithTTL[T](store, stateName,
-        keyEncoder, valEncoder, ttlMode, ttlExpirationMs)
+        keyEncoder, valEncoder, ttlMode, ttlExpirationMs.get)
 
       ttlStates.add(listStateWithTTL)
 
