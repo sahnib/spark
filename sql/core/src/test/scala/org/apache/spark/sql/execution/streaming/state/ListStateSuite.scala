@@ -17,12 +17,13 @@
 
 package org.apache.spark.sql.execution.streaming.state
 
+import java.time.Duration
 import java.util.UUID
 
-import org.apache.spark.SparkIllegalArgumentException
+import org.apache.spark.{SparkIllegalArgumentException, SparkUnsupportedOperationException}
 import org.apache.spark.sql.Encoders
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
-import org.apache.spark.sql.execution.streaming.{ImplicitGroupingKeyTracker, StatefulProcessorHandleImpl}
+import org.apache.spark.sql.execution.streaming.{ImplicitGroupingKeyTracker, ListStateImplWithTTL, StatefulProcessorHandleImpl}
 import org.apache.spark.sql.streaming.{ListState, TimeoutMode, TTLMode, ValueState}
 
 /**
@@ -162,6 +163,180 @@ class ListStateSuite extends StateVariableSuiteBase {
       assert(listState2.exists())
       assert(!valueState.exists())
       assert(listState1.get().toSeq === Seq.empty[Long])
+    }
+  }
+
+  test("test TTL duration throws error for event time") {
+    tryWithProviderResource(newStoreProviderWithStateVariable(true)) { provider =>
+      val store = provider.getStore(0)
+      val eventTimeWatermarkMs = 10
+      val handle = new StatefulProcessorHandleImpl(store, UUID.randomUUID(),
+        Encoders.STRING.asInstanceOf[ExpressionEncoder[Any]],
+        TTLMode.EventTimeTTL(), TimeoutMode.NoTimeouts(),
+        eventTimeWatermarkMs = Some(eventTimeWatermarkMs))
+
+      val testState: ListStateImplWithTTL[String] = handle.getListState[String]("testState",
+        Encoders.STRING).asInstanceOf[ListStateImplWithTTL[String]]
+      ImplicitGroupingKeyTracker.setImplicitKey("test_key")
+
+      val ex1 = intercept[SparkUnsupportedOperationException] {
+        testState.put(Array("v1"), Duration.ofMinutes(1))
+      }
+
+      checkError(
+        ex1,
+        errorClass = "STATEFUL_PROCESSOR_CANNOT_USE_TTL_DURATION_IN_EVENT_TIME_TTL_MODE",
+        parameters = Map(
+          "operationType" -> "put",
+          "stateName" -> "testState"
+        ),
+        matchPVals = true
+      )
+
+      testState.put(Array("v1"), 10000)
+      val ex2 = intercept[SparkUnsupportedOperationException] {
+        testState.appendList(Array("v1"), Duration.ofMinutes(1))
+      }
+
+      checkError(
+        ex2,
+        errorClass = "STATEFUL_PROCESSOR_CANNOT_USE_TTL_DURATION_IN_EVENT_TIME_TTL_MODE",
+        parameters = Map(
+          "operationType" -> "appendList",
+          "stateName" -> "testState"
+        ),
+        matchPVals = true
+      )
+
+      val ex3 = intercept[SparkUnsupportedOperationException] {
+        testState.appendValue("v1", Duration.ofMinutes(1))
+      }
+
+      checkError(
+        ex3,
+        errorClass = "STATEFUL_PROCESSOR_CANNOT_USE_TTL_DURATION_IN_EVENT_TIME_TTL_MODE",
+        parameters = Map(
+          "operationType" -> "appendValue",
+          "stateName" -> "testState"
+        ),
+        matchPVals = true
+      )
+    }
+  }
+
+  test("test negative TTL duration throws error") {
+    tryWithProviderResource(newStoreProviderWithStateVariable(true)) { provider =>
+      val store = provider.getStore(0)
+      val batchTimestampMs = 10
+      val handle = new StatefulProcessorHandleImpl(store, UUID.randomUUID(),
+        Encoders.STRING.asInstanceOf[ExpressionEncoder[Any]],
+        TTLMode.ProcessingTimeTTL(), TimeoutMode.NoTimeouts(),
+        batchTimestampMs = Some(batchTimestampMs))
+
+      val testState: ListStateImplWithTTL[String] = handle.getListState[String]("testState",
+        Encoders.STRING).asInstanceOf[ListStateImplWithTTL[String]]
+      ImplicitGroupingKeyTracker.setImplicitKey("test_key")
+
+      val ex1 = intercept[SparkUnsupportedOperationException] {
+        testState.put(Array("v1"), Duration.ofMinutes(-1))
+      }
+
+      checkError(
+        ex1,
+        errorClass = "STATEFUL_PROCESSOR_TTL_VALUE_CANNOT_BE_NEGATIVE",
+        parameters = Map(
+          "operationType" -> "put",
+          "stateName" -> "testState"
+        ),
+        matchPVals = true
+      )
+      testState.put(Array("v1"), Duration.ofMinutes(1))
+      // test negative duration for appendList and appendValue
+      val ex2 = intercept[SparkUnsupportedOperationException] {
+        testState.appendList(Array("v1"), Duration.ofMinutes(-1))
+      }
+
+      checkError(
+        ex2,
+        errorClass = "STATEFUL_PROCESSOR_TTL_VALUE_CANNOT_BE_NEGATIVE",
+        parameters = Map(
+          "operationType" -> "appendList",
+          "stateName" -> "testState"
+        ),
+        matchPVals = true
+      )
+
+      val ex3 = intercept[SparkUnsupportedOperationException] {
+          testState.appendValue("v1", Duration.ofMinutes(-1))
+      }
+
+      checkError(
+          ex3,
+          errorClass = "STATEFUL_PROCESSOR_TTL_VALUE_CANNOT_BE_NEGATIVE",
+          parameters = Map(
+          "operationType" -> "appendValue",
+          "stateName" -> "testState"
+          ),
+          matchPVals = true
+      )
+    }
+  }
+
+  test("test negative expirationMs throws error") {
+    tryWithProviderResource(newStoreProviderWithStateVariable(true)) { provider =>
+      val store = provider.getStore(0)
+      val eventTimeWatermarkMs = 10
+      val handle = new StatefulProcessorHandleImpl(store, UUID.randomUUID(),
+        Encoders.STRING.asInstanceOf[ExpressionEncoder[Any]],
+        TTLMode.EventTimeTTL(), TimeoutMode.NoTimeouts(),
+        eventTimeWatermarkMs = Some(eventTimeWatermarkMs))
+
+      val testState: ListStateImplWithTTL[String] = handle.getListState[String]("testState",
+        Encoders.STRING).asInstanceOf[ListStateImplWithTTL[String]]
+      ImplicitGroupingKeyTracker.setImplicitKey("test_key")
+
+      val ex1 = intercept[SparkUnsupportedOperationException] {
+        testState.put(Array("v1"), -10)
+      }
+
+      checkError(
+        ex1,
+        errorClass = "STATEFUL_PROCESSOR_TTL_VALUE_CANNOT_BE_NEGATIVE",
+        parameters = Map(
+          "operationType" -> "put",
+          "stateName" -> "testState"
+        ),
+        matchPVals = true
+      )
+      testState.put(Array("v1"), 10)
+
+      val ex2 = intercept[SparkUnsupportedOperationException] {
+          testState.appendList(Array("v1"), -10)
+      }
+
+      checkError(
+          ex2,
+          errorClass = "STATEFUL_PROCESSOR_TTL_VALUE_CANNOT_BE_NEGATIVE",
+          parameters = Map(
+          "operationType" -> "appendList",
+          "stateName" -> "testState"
+          ),
+          matchPVals = true
+      )
+
+      val ex3 = intercept[SparkUnsupportedOperationException] {
+          testState.appendValue("v1", -10)
+      }
+
+      checkError(
+          ex3,
+          errorClass = "STATEFUL_PROCESSOR_TTL_VALUE_CANNOT_BE_NEGATIVE",
+          parameters = Map(
+          "operationType" -> "appendValue",
+          "stateName" -> "testState"
+          ),
+          matchPVals = true
+      )
     }
   }
 }
