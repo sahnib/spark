@@ -77,7 +77,7 @@ public class TestStatefulProcessor extends StatefulProcessor<Integer, String, St
           keyCountMap.updateValue(value, 1L);
         }
         assert(keyCountMap.containsKey(value));
-        keysList.appendValue(value);
+        keysList.appendValue(value, Duration.ZERO);
         sb.append(value);
       }
 

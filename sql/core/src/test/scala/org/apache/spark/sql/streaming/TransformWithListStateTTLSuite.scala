@@ -131,7 +131,8 @@ class ListStateTTLSuite extends TransformWithStateTTLSuiteBase {
         .transformWithState(
           getProcessor(),
           TimeoutMode.NoTimeouts(),
-          TTLMode.ProcessingTimeTTL())
+          TTLMode.ProcessingTimeTTL(),
+          OutputMode.Append())
 
       val clock = new StreamManualClock
       testStream(result)(
@@ -186,7 +187,8 @@ class ListStateTTLSuite extends TransformWithStateTTLSuiteBase {
         .transformWithState(
           getProcessor(),
           TimeoutMode.NoTimeouts(),
-          TTLMode.ProcessingTimeTTL())
+          TTLMode.ProcessingTimeTTL(),
+          OutputMode.Append())
 
       val clock = new StreamManualClock
       testStream(result)(
@@ -232,7 +234,8 @@ class ListStateTTLSuite extends TransformWithStateTTLSuiteBase {
         .transformWithState(
           getProcessor(),
           TimeoutMode.NoTimeouts(),
-          TTLMode.EventTimeTTL())
+          TTLMode.EventTimeTTL(),
+          OutputMode.Append())
 
       val eventTime1 = Timestamp.valueOf("2024-01-01 00:00:00")
       val eventTime2 = Timestamp.valueOf("2024-01-01 00:01:00")
@@ -296,7 +299,8 @@ class ListStateTTLSuite extends TransformWithStateTTLSuiteBase {
         .transformWithState(
           getProcessor(),
           TimeoutMode.NoTimeouts(),
-          TTLMode.EventTimeTTL())
+          TTLMode.EventTimeTTL(),
+          OutputMode.Append())
 
       val eventTime1 = Timestamp.valueOf("2024-01-01 00:00:00")
       val eventTime2 = Timestamp.valueOf("2024-01-01 00:03:00")

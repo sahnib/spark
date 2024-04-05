@@ -41,7 +41,8 @@ class RunningCountStatefulProcessorZeroTTL
 
   override def init(
    outputMode: OutputMode,
-   timeoutMode: TimeoutMode) : Unit = {
+   timeoutMode: TimeoutMode,
+   ttlMode: TTLMode) : Unit = {
     assert(getHandle.getQueryInfo().getBatchId >= 0)
     _countState = getHandle.getValueState("countState", Encoders.scalaLong)
   }
@@ -303,7 +304,8 @@ class RunningCountMostRecentStatefulProcessorWithTTL
 
   override def init(
       outputMode: OutputMode,
-      timeoutMode: TimeoutMode) : Unit = {
+      timeoutMode: TimeoutMode,
+      ttlMode: TTLMode) : Unit = {
     assert(getHandle.getQueryInfo().getBatchId >= 0)
     _countState = getHandle.getValueState(
       "countState", Encoders.scalaLong)

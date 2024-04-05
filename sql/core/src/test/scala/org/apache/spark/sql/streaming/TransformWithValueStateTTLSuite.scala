@@ -27,20 +27,6 @@ import org.apache.spark.sql.execution.streaming.state.RocksDBStateStoreProvider
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.streaming.util.StreamManualClock
 
-case class InputEvent(
-    key: String,
-    action: String,
-    value: Int,
-    ttl: Duration,
-    eventTime: Timestamp = null,
-    eventTimeTtl: Timestamp = null)
-
-case class OutputEvent(
-    key: String,
-    value: Int,
-    isTTLValue: Boolean,
-    ttlValue: Long)
-
 object TTLInputProcessFunction {
   def processRow(
       ttlMode: TTLMode,
