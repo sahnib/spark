@@ -56,11 +56,6 @@ object StateStoreErrors {
     new StateStoreMultipleColumnFamiliesNotSupportedException(stateStoreProvider)
   }
 
-  def ttlNotSupportedWithProvider(stateStoreProvider: String):
-  StateStoreTTLNotSupportedException = {
-    new StateStoreTTLNotSupportedException(stateStoreProvider)
-  }
-
   def removingColumnFamiliesNotSupported(stateStoreProvider: String):
     StateStoreRemovingColumnFamiliesNotSupportedException = {
     new StateStoreRemovingColumnFamiliesNotSupportedException(stateStoreProvider)
@@ -149,14 +144,7 @@ object StateStoreErrors {
 class StateStoreMultipleColumnFamiliesNotSupportedException(stateStoreProvider: String)
   extends SparkUnsupportedOperationException(
     errorClass = "UNSUPPORTED_FEATURE.STATE_STORE_MULTIPLE_COLUMN_FAMILIES",
-    messageParameters = Map("stateStoreProvider" -> stateStoreProvider)
-  )
-
-class StateStoreTTLNotSupportedException(stateStoreProvider: String)
-  extends SparkUnsupportedOperationException(
-    errorClass = "UNSUPPORTED_FEATURE.STATE_STORE_TTL",
-    messageParameters = Map("stateStoreProvider" -> stateStoreProvider)
-  )
+    messageParameters = Map("stateStoreProvider" -> stateStoreProvider))
 
 class StateStoreRemovingColumnFamiliesNotSupportedException(stateStoreProvider: String)
   extends SparkUnsupportedOperationException(
